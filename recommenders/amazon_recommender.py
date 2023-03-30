@@ -101,20 +101,27 @@ class AmazonRecommender(Recommender):
             c_x = interactions_df.loc[interactions_df['item_id'] == x]['user_id'].unique()
 
             # Get users who bought only X
-            c_only_x = interactions_df.loc[interactions_df['item_id'] != x]['user_id'].unique()
-            c_only_x = list(set(c_x.tolist()) - set(c_only_x.tolist()))
+            c_non_x = interactions_df.loc[interactions_df['item_id'] != x]['user_id'].unique()
+            c_only_x = list(set(c_x.tolist()) - set(c_non_x.tolist()))
 
             # Calculate the number of non-X interactions for each user who bought X
-            # Include users with zero non-X interactions
+            # ------
+
+            # Calculate the number of non-X interactions for each user
             n_non_x_interactions = interactions_df.loc[interactions_df['item_id'] != x, ['user_id', 'item_id']]
             n_non_x_interactions = n_non_x_interactions.groupby("user_id").count()
             # Unnecessary, but added for readability
             n_non_x_interactions = n_non_x_interactions.rename(columns={'item_id': 'n_items'})
 
-            zero_non_x_interactions = pd.DataFrame([[0]]*len(c_only_x), columns=["n_items"], index=c_only_x)  # Remove
+            # Include users with zero non-X interactions
+            zero_non_x_interactions = pd.DataFrame([[0]] * len(c_only_x), columns=["n_items"], index=c_only_x)
             n_non_x_interactions = pd.concat([n_non_x_interactions, zero_non_x_interactions])
 
-            n_non_x_interactions = n_non_x_interactions.loc[c_x.tolist()]
+            # Filter only those who actually bought x
+            c_x_and_non_x = list(set.intersection(set(c_x.tolist()), set(c_non_x.tolist())))
+            n_non_x_interactions = n_non_x_interactions.loc[c_x_and_non_x]
+
+            # ------
 
             # Calculate the expected numbers of Y products bought by clients who bought X
             alpha_k = np.array([np.sum([(-1)**(k + 1) * scisp.binom(abs_c, k)
@@ -125,7 +132,7 @@ class AmazonRecommender(Recommender):
                 if y != x:
                     e_xy[x][y] = np.sum(alpha_k * p_y_powers[y])
                 else:
-                    e_xy[x][y] = n_users * p_y[x]
+                    e_xy[x][y] = n_interactions * p_y[x]
 
         self.e_xy = e_xy
 
