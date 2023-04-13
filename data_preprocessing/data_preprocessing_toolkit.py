@@ -43,6 +43,7 @@ class DataPreprocessingToolkit(object):
         ########################
         # Write your code here #
         ########################
+        return df[df['is_company'] == 0]
 
     @staticmethod
     def filter_out_long_stays(df):
