@@ -57,6 +57,8 @@ class DataPreprocessingToolkit(object):
         ########################
         # Write your code here #
         ########################
+        return df[df['length_of_stay'] <= 21]
+        
 
     @staticmethod
     def filter_out_low_prices(df):
@@ -71,7 +73,8 @@ class DataPreprocessingToolkit(object):
         ########################
         # Write your code here #
         ########################
-
+        return df[df['accommodation_price'] > 50]
+        
     @staticmethod
     def fix_date_to(df):
         """
@@ -96,6 +99,8 @@ class DataPreprocessingToolkit(object):
         ########################
         # Write your code here #
         ########################
+        df['length_of_stay'] = (df['date_to'] - df['date_from']).dt.days
+        return df
 
     @staticmethod
     def add_book_to_arrival(df):
@@ -109,6 +114,12 @@ class DataPreprocessingToolkit(object):
         ########################
         # Write your code here #
         ########################
+        df['date_from'] = pd.to_datetime(df['date_from'])
+        df['booking_date'] = pd.to_datetime(df['booking_date'])
+
+        # calculate the book to arrival time in days
+        df['book_to_arrival'] = (df['date_from'] - df['booking_date']).dt.days
+        return df
 
     @staticmethod
     def add_nrooms(df):
@@ -121,6 +132,9 @@ class DataPreprocessingToolkit(object):
         """
         df['n_rooms'] = 1
         return df
+    
+
+
 
     @staticmethod
     def add_weekend_stay(df):
@@ -135,7 +149,25 @@ class DataPreprocessingToolkit(object):
         ########################
         # Write your code here #
         ########################
+        def check_friday_or_saturday(start_date, end_date):
+            # create a range of dates between start_date and end_date (inclusive)
+            dates = pd.date_range(start=start_date, end=end_date - pd.DateOffset(days=1))
 
+            # check if any date in the range is a Friday or Saturday
+            for date in dates:
+                if date.weekday() == 4 or date.weekday() == 5:
+                    return True
+
+            return False
+            
+        mask = ((df['date_to'] - df['date_from']).dt.days >= 0) & \
+               df.apply(lambda row: check_friday_or_saturday(row['date_from'], row['date_to']), axis=1)
+
+        # add weekend_stay column with 'True'/'False' strings
+        df['weekend_stay'] = mask.map({True: 'True', False: 'False'})
+
+        return df
+    
     @staticmethod
     def add_night_price(df):
         """
@@ -149,6 +181,10 @@ class DataPreprocessingToolkit(object):
         ########################
         # Write your code here #
         ########################
+        df['night_price'] = df['accommodation_price'] / (df['length_of_stay'] * df['n_rooms'])
+        df['night_price'] = df['night_price'].round(2)
+
+        return df
 
     @staticmethod
     def clip_book_to_arrival(df):
@@ -174,6 +210,9 @@ class DataPreprocessingToolkit(object):
         ########################
         # Write your code here #
         ########################
+        df['sum_npeople'] = df[['n_people', 'n_children_1', 'n_children_2', 'n_children_3']].sum(axis=1)
+        df['n_people'] = df['sum_npeople']
+        return df
 
     @staticmethod
     def leave_one_from_group_reservations(df):
@@ -223,8 +262,26 @@ class DataPreprocessingToolkit(object):
         # to non_group_reservations
         ########################
         # Write your code here #
-        ########################
+        #######################
+        # Apply group by on 'room_group_id' and take the sum in columns given under self.sum_columns
+        sum_group = group_reservations.groupby('group_id')[self.sum_columns].sum()
 
+        # Apply group by on 'room_group_id' and take the mean in columns given under self.mean_columns
+        mean_group = group_reservations.groupby('group_id')[self.mean_columns].mean()
+
+        # Apply group by on 'room_group_id' and take the mode in columns given under self.mode_columns
+        mode_group = group_reservations.groupby('group_id')[self.mode_columns].agg(lambda x: x.value_counts().index[0])
+
+        # Apply group by on 'room_group_id' and take the first value in columns given under self.first_columns
+        first_group = group_reservations.groupby('group_id')[self.first_columns].first()
+
+        merged_groups = sum_group.merge(mean_group, on='group_id').merge(mode_group, on='group_id').merge(first_group, on='group_id')
+
+        # Concatenate the aggregated group reservations to non_group_reservations
+        result = pd.concat([non_group_reservations, merged_groups.reset_index()], axis=0)
+
+        return result
+    
     @staticmethod
     def leave_only_ota(df):
         df = df.loc[df.loc[:, 'Source'].apply(lambda x: "booking" in x.lower() or "expedia" in x.lower())]
@@ -266,6 +323,18 @@ class DataPreprocessingToolkit(object):
         ########################
         # Write your code here #
         ########################
+                # Calculate the average of night prices for every room_group_id
+        avg_night_prices = df.groupby('room_group_id')['night_price'].mean().reset_index()
+        
+        # Map the average night prices to buckets using map_value_to_bucket method
+        avg_night_prices['room_segment'] = avg_night_prices['night_price'].apply(
+            lambda x: self.map_value_to_bucket(x, self.room_segment_buckets)
+        )
+        
+        # Merge the room_segment column back into the original DataFrame
+        df = df.merge(avg_night_prices[['room_group_id', 'room_segment']], on='room_group_id', how='left')
+        
+        return df
 
     def map_npeople_to_npeople_buckets(self, df):
         """
